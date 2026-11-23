@@ -8,8 +8,12 @@ import type { Champion, Chroma, Rarity, Skin } from "@/lib/types";
  * CommunityDragon espelha os arquivos do cliente do LoL.
  * A API oficial da Riot não tem dados de skins/chromas, por isso usamos ele.
  */
-const BASE =
-  "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default";
+const ROOT =
+  "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global";
+/** Imagens e dados sem tradução (inglês). */
+const BASE = `${ROOT}/default`;
+/** Mesmos JSONs, com nomes traduzidos para português do Brasil. */
+const BASE_PT_BR = `${ROOT}/pt_br`;
 
 /**
  * Os JSONs apontam para caminhos internos do cliente, ex:
@@ -57,8 +61,8 @@ const RARITIES: Record<string, Rarity> = {
 /** Campeões jogáveis vão até ~950; ids acima disso são de modos especiais. */
 const MAX_CHAMPION_ID = 1000;
 
-async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}/${path}`);
+async function getJson<T>(base: string, path: string): Promise<T> {
+  const res = await fetch(`${base}/${path}`);
   if (!res.ok) throw new Error(`CommunityDragon ${path}: HTTP ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -70,15 +74,19 @@ async function getJson<T>(path: string): Promise<T> {
  * `use cache` + `cacheLife("days")`: o resultado é gerado no build e
  * reaproveitado; o Next refaz a busca no máximo uma vez por dia.
  * O skins.json bruto tem ~6,5 MB; o que guardamos é bem menor.
+ *
+ * Nomes em português (pasta pt_br). O skins.json em inglês também é baixado,
+ * só para a busca aceitar os nomes em inglês ("arcade ahri" → "Ahri Fliperama").
  */
 export async function getCatalog(): Promise<Champion[]> {
   "use cache";
   cacheLife("days");
 
-  const [skins, champions, skinLines] = await Promise.all([
-    getJson<Record<string, RawSkin>>("v1/skins.json"),
-    getJson<RawChampion[]>("v1/champion-summary.json"),
-    getJson<RawSkinLine[]>("v1/skinlines.json"),
+  const [skins, skinsEn, champions, skinLines] = await Promise.all([
+    getJson<Record<string, RawSkin>>(BASE_PT_BR, "v1/skins.json"),
+    getJson<Record<string, RawSkin>>(BASE, "v1/skins.json"),
+    getJson<RawChampion[]>(BASE_PT_BR, "v1/champion-summary.json"),
+    getJson<RawSkinLine[]>(BASE_PT_BR, "v1/skinlines.json"),
   ]);
 
   const championName = new Map(champions.map((c) => [c.id, c.name]));
@@ -91,6 +99,7 @@ export async function getCatalog(): Promise<Champion[]> {
     .map((s): Skin => {
       // O id da skin é championId * 1000 + número da skin (ex: 1013 → Annie).
       const championId = Math.floor(s.id / 1000);
+      const en = skinsEn[s.id];
       const chromas: Chroma[] = (s.chromas ?? []).map((c) => ({
         id: c.id,
         name: c.name,
@@ -110,6 +119,10 @@ export async function getCatalog(): Promise<Champion[]> {
           .map((l) => lineName.get(l.id))
           .filter((n): n is string => Boolean(n)),
         chromas,
+        // Nome da skin e dos chromas em inglês, só para a busca.
+        searchAliases: en
+          ? [en.name, ...(en.chromas ?? []).map((c) => c.name)].join(" ")
+          : "",
       };
     });
 
@@ -128,5 +141,5 @@ export async function getCatalog(): Promise<Champion[]> {
       icon: `${BASE}/v1/champion-icons/${id}.png`,
       skins: champSkins.sort((a, b) => a.id - b.id),
     }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }

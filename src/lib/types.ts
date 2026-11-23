@@ -25,6 +25,8 @@ export type Skin = {
   splash: string | null;
   skinLines: string[];
   chromas: Chroma[];
+  /** Nomes em inglês (skin + chromas), usados só na busca. */
+  searchAliases: string;
 };
 
 export type Champion = {

@@ -4,14 +4,15 @@ import type { CatalogItem, Champion, Skin } from "@/lib/types";
 export function normalize(text: string): string {
   return text
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, "");
 }
 
 /**
- * Texto pesquisável de cada skin: nome, campeão, coleções e nomes dos
- * chromas. Assim "ahri emerald" encontra a skin que tem esse chroma.
+ * Texto pesquisável de cada skin: nome, campeão, coleções, nomes dos
+ * chromas e os mesmos nomes em inglês. Assim "ahri esmeralda" e
+ * "ahri emerald" encontram a skin que tem esse chroma.
  * Calculado uma vez só (WeakMap evita recalcular a cada tecla).
  */
 const haystacks = new WeakMap<Skin, string>();
@@ -19,7 +20,13 @@ function haystack(skin: Skin): string {
   let text = haystacks.get(skin);
   if (text === undefined) {
     text = normalize(
-      [skin.name, skin.championName, ...skin.skinLines, ...skin.chromas.map((c) => c.name)].join(" "),
+      [
+        skin.name,
+        skin.championName,
+        ...skin.skinLines,
+        ...skin.chromas.map((c) => c.name),
+        skin.searchAliases,
+      ].join(" "),
     );
     haystacks.set(skin, text);
   }
