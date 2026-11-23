@@ -15,16 +15,35 @@ type Props = {
   item: CatalogItem;
   wished: boolean;
   onToggleWish: (item: CatalogItem) => void;
+  /** Se passado, clicar no card abre os detalhes (modal de chromas). */
+  onOpen?: () => void;
 };
 
-export function CatalogCard({ item, wished, onToggleWish }: Props) {
+export function CatalogCard({ item, wished, onToggleWish, onOpen }: Props) {
   const { skin } = item;
   const isChroma = item.kind === "chroma";
   const image = isChroma ? item.chroma.image : skin.image;
   const title = itemTitle(item);
 
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <Card
+      className={cn(
+        "relative gap-0 overflow-hidden py-0",
+        onOpen && "transition-colors hover:ring-2 hover:ring-primary/60",
+      )}
+    >
+      {/*
+        Botão invisível cobrindo o card inteiro: o card todo fica clicável
+        sem colocar um <button> dentro de outro (o ♥ fica por cima com z-10).
+      */}
+      {onOpen && (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={`Ver chromas de ${title}`}
+          className="absolute inset-0 z-[1] rounded-xl focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+        />
+      )}
       <div className="relative aspect-square bg-muted">
         {image && (
           <Image
@@ -48,16 +67,14 @@ export function CatalogCard({ item, wished, onToggleWish }: Props) {
         <Button
           size="icon"
           variant="secondary"
-          className="absolute top-2 right-2 rounded-full"
+          className="absolute top-2 right-2 z-10 rounded-full"
           aria-pressed={wished}
           aria-label={
             wished ? `Remover ${title} da wishlist` : `Adicionar ${title} à wishlist`
           }
           onClick={() => onToggleWish(item)}
         >
-          <HeartIcon
-            className={cn(wished && "fill-red-500 text-red-500")}
-          />
+          <HeartIcon className={cn(wished && "fill-red-500 text-red-500")} />
         </Button>
       </div>
       <CardContent className="flex flex-col gap-1 p-3">
@@ -76,7 +93,9 @@ export function CatalogCard({ item, wished, onToggleWish }: Props) {
             </span>
           ) : (
             skin.chromas.length > 0 && (
-              <span className="shrink-0">{skin.chromas.length} chromas</span>
+              <span className="shrink-0">
+                {skin.chromas.length} {skin.chromas.length === 1 ? "chroma" : "chromas"}
+              </span>
             )
           )}
         </div>

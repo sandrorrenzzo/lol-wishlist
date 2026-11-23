@@ -5,36 +5,27 @@ import { SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { CatalogCard, itemTitle } from "@/components/catalog-card";
-import { Button } from "@/components/ui/button";
+import { CARD_GRID, ChampionSection } from "@/components/champion-section";
+import { SkinDialog } from "@/components/skin-dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWishlist } from "@/hooks/use-wishlist";
-import { buildIndex, search, type KindFilter } from "@/lib/search";
-import type { CatalogItem, Skin } from "@/lib/types";
-
-const PAGE_SIZE = 60;
+import { buildItemMap, searchCatalog, skinKey } from "@/lib/search";
+import type { CatalogItem, Champion, Skin } from "@/lib/types";
 
 type LoadState =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; skins: Skin[] };
+  | { status: "ready"; champions: Champion[] };
 
 export function SkinCatalog() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState<KindFilter>("all");
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [openSkin, setOpenSkin] = useState<Skin | null>(null);
   const wishlist = useWishlist();
 
-  // useDeferredValue: o input atualiza na hora e a filtragem (≈9 mil itens)
+  // useDeferredValue: o input atualiza na hora e a filtragem (~2 mil skins)
   // roda com prioridade menor, então digitar nunca trava.
   const deferredQuery = useDeferredValue(query);
 
@@ -42,27 +33,38 @@ export function SkinCatalog() {
     fetch("/api/skins")
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json() as Promise<Skin[]>;
+        return res.json() as Promise<Champion[]>;
       })
-      .then((skins) => setState({ status: "ready", skins }))
+      .then((champions) => setState({ status: "ready", champions }))
       .catch(() => setState({ status: "error" }));
   }, []);
 
-  const index = useMemo(
-    () => (state.status === "ready" ? buildIndex(state.skins) : []),
+  const champions = useMemo(
+    () => (state.status === "ready" ? state.champions : []),
     [state],
   );
   const results = useMemo(
-    () => search(index, deferredQuery, kind),
-    [index, deferredQuery, kind],
+    () => searchCatalog(champions, deferredQuery),
+    [champions, deferredQuery],
   );
-  // Converte as chaves salvas ("s1013", "c1014") de volta em itens.
-  const wishedItems = useMemo(() => {
-    const byKey = new Map(index.map(({ item }) => [item.key, item]));
-    return wishlist.entries
-      .map((e) => byKey.get(e.key))
-      .filter((item): item is CatalogItem => Boolean(item));
-  }, [index, wishlist.entries]);
+  const resultCount = results.reduce((n, c) => n + c.skins.length, 0);
+
+  // Wishlist agrupada por campeão (mesma ordem alfabética da busca).
+  const itemMap = useMemo(() => buildItemMap(champions), [champions]);
+  const wishedByChampion = useMemo(() => {
+    const groups = new Map<number, CatalogItem[]>();
+    for (const entry of wishlist.entries) {
+      const item = itemMap.get(entry.key);
+      if (!item) continue;
+      const list = groups.get(item.skin.championId) ?? [];
+      list.push(item);
+      groups.set(item.skin.championId, list);
+    }
+    return champions
+      .filter((c) => groups.has(c.id))
+      .map((c) => ({ champion: c, items: groups.get(c.id)! }));
+  }, [champions, itemMap, wishlist.entries]);
+  const wishedCount = wishedByChampion.reduce((n, g) => n + g.items.length, 0);
 
   function handleToggleWish(item: CatalogItem) {
     const added = wishlist.toggle(item.key);
@@ -70,7 +72,7 @@ export function SkinCatalog() {
     toast(added ? `${title} adicionado à wishlist` : `${title} removido da wishlist`);
   }
 
-  if (state.status === "loading") return <GridSkeleton />;
+  if (state.status === "loading") return <LoadingSkeleton />;
   if (state.status === "error") {
     return (
       <p className="text-sm text-destructive">
@@ -80,17 +82,15 @@ export function SkinCatalog() {
   }
 
   return (
-    <Tabs defaultValue="search" className="gap-6">
-      <TabsList>
-        <TabsTrigger value="search">Buscar</TabsTrigger>
-        <TabsTrigger value="wishlist">
-          Minha wishlist ({wishedItems.length})
-        </TabsTrigger>
-      </TabsList>
+    <>
+      <Tabs defaultValue="search" className="gap-6">
+        <TabsList>
+          <TabsTrigger value="search">Skins</TabsTrigger>
+          <TabsTrigger value="wishlist">Minha wishlist ({wishedCount})</TabsTrigger>
+        </TabsList>
 
-      <TabsContent value="search" className="flex flex-col gap-6">
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <div className="relative flex-1">
+        <TabsContent value="search" className="flex flex-col gap-6">
+          <div className="relative">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
@@ -98,102 +98,95 @@ export function SkinCatalog() {
               placeholder="Campeão, skin, chroma ou coleção (ex: ahri arcana)"
               aria-label="Buscar skins e chromas"
               value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setLimit(PAGE_SIZE);
-              }}
+              onChange={(e) => setQuery(e.target.value)}
               className="h-10 pl-9"
             />
           </div>
-          <Select
-            value={kind}
-            onValueChange={(value) => {
-              setKind(value as KindFilter);
-              setLimit(PAGE_SIZE);
-            }}
-          >
-            <SelectTrigger className="h-10 w-full sm:w-48" aria-label="Tipo">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Skins e chromas</SelectItem>
-              <SelectItem value="skin">Só skins</SelectItem>
-              <SelectItem value="chroma">Só chromas</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
 
-        <p className="text-sm text-muted-foreground">
-          {results.length.toLocaleString("pt-BR")}{" "}
-          {results.length === 1 ? "resultado" : "resultados"}
-        </p>
-        <ItemGrid
-          items={results.slice(0, limit)}
-          isWished={wishlist.has}
-          onToggleWish={handleToggleWish}
-        />
-        {results.length > limit && (
-          <Button
-            variant="outline"
-            className="self-center"
-            onClick={() => setLimit((n) => n + PAGE_SIZE)}
-          >
-            Mostrar mais
-          </Button>
-        )}
-      </TabsContent>
-
-      <TabsContent value="wishlist">
-        {wishedItems.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Sua wishlist está vazia. Busque uma skin ou chroma e toque no ♥.
+            {resultCount.toLocaleString("pt-BR")} {resultCount === 1 ? "skin" : "skins"} em{" "}
+            {results.length} {results.length === 1 ? "campeão" : "campeões"}. Clique em
+            uma skin para ver os chromas.
           </p>
-        ) : (
-          <ItemGrid
-            items={wishedItems}
-            isWished={wishlist.has}
-            onToggleWish={handleToggleWish}
-          />
-        )}
-      </TabsContent>
-    </Tabs>
+
+          {results.map((champ) => (
+            <ChampionSection
+              key={champ.id}
+              name={champ.name}
+              icon={champ.icon}
+              count={champ.skins.length}
+            >
+              <ul className={CARD_GRID}>
+                {champ.skins.map((skin) => {
+                  const item: CatalogItem = { kind: "skin", key: skinKey(skin), skin };
+                  return (
+                    <li key={item.key}>
+                      <CatalogCard
+                        item={item}
+                        wished={wishlist.has(item.key)}
+                        onToggleWish={handleToggleWish}
+                        onOpen={() => setOpenSkin(skin)}
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+            </ChampionSection>
+          ))}
+        </TabsContent>
+
+        <TabsContent value="wishlist" className="flex flex-col gap-6">
+          {wishedByChampion.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Sua wishlist está vazia. Toque no ♥ de uma skin ou chroma para adicionar.
+            </p>
+          ) : (
+            wishedByChampion.map(({ champion, items }) => (
+              <ChampionSection
+                key={champion.id}
+                name={champion.name}
+                icon={champion.icon}
+                count={items.length}
+              >
+                <ul className={CARD_GRID}>
+                  {items.map((item) => (
+                    <li key={item.key}>
+                      <CatalogCard
+                        item={item}
+                        wished
+                        onToggleWish={handleToggleWish}
+                        onOpen={() => setOpenSkin(item.skin)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </ChampionSection>
+            ))
+          )}
+        </TabsContent>
+      </Tabs>
+
+      <SkinDialog
+        skin={openSkin}
+        onClose={() => setOpenSkin(null)}
+        isWished={wishlist.has}
+        onToggleWish={handleToggleWish}
+      />
+    </>
   );
 }
 
-const GRID = "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6";
-
-function ItemGrid({
-  items,
-  isWished,
-  onToggleWish,
-}: {
-  items: CatalogItem[];
-  isWished: (key: string) => boolean;
-  onToggleWish: (item: CatalogItem) => void;
-}) {
+function LoadingSkeleton() {
   return (
-    <ul className={GRID}>
-      {items.map((item) => (
-        <li key={item.key}>
-          <CatalogCard
-            item={item}
-            wished={isWished(item.key)}
-            onToggleWish={onToggleWish}
-          />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function GridSkeleton() {
-  return (
-    <ul className={GRID} aria-label="Carregando skins">
-      {Array.from({ length: 12 }, (_, i) => (
-        <li key={i}>
-          <Skeleton className="aspect-[3/4] w-full rounded-xl" />
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-3" aria-label="Carregando skins">
+      <Skeleton className="h-9 w-48" />
+      <ul className={CARD_GRID}>
+        {Array.from({ length: 12 }, (_, i) => (
+          <li key={i}>
+            <Skeleton className="aspect-[3/4] w-full rounded-xl" />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
