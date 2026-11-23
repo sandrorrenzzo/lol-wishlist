@@ -53,3 +53,17 @@ export const RARITY_LABEL: Record<Rarity, string> = {
   transcendent: "Transcendental",
   exalted: "Exaltada",
 };
+
+/** Resposta de GET /api/skins (uma página do scroll infinito). */
+export type CatalogPage = {
+  champions: Champion[];
+  nextCursor: number | null;
+  totalChampions: number;
+  totalSkins: number;
+};
+
+/** Resposta de GET /api/skins/items: itens da wishlist agrupados por campeão. */
+export type WishlistGroup = {
+  champion: Pick<Champion, "id" | "name" | "icon">;
+  items: CatalogItem[];
+};

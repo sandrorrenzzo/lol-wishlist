@@ -18,8 +18,10 @@ Por enquanto a wishlist fica salva no navegador (`localStorage`). Login e sincro
 
 - A API oficial da Riot não tem dados de skins nem chromas. Os dados e as imagens vêm do [CommunityDragon](https://www.communitydragon.org/), que espelha os arquivos do client do LoL.
 - Os nomes vêm em português do Brasil (pasta `pt_br` do CommunityDragon). Os nomes em inglês são guardados só para a busca.
-- A rota `GET /api/skins` junta `skins.json`, `champion-summary.json` e `skinlines.json` num formato enxuto. O resultado é gerado no build e atualizado no máximo uma vez por dia (`use cache` + `cacheLife("days")`).
-- A busca roda no navegador, sobre cerca de 2 mil skins de 173 campeões (com os nomes dos chromas incluídos).
+- O servidor junta `skins.json`, `champion-summary.json` e `skinlines.json` num catálogo enxuto, guardado em cache por até um dia (`use cache` + `cacheLife("days")`).
+- `GET /api/skins?cursor=0&q=ahri` devolve **8 campeões por vez**, já filtrados pela busca. A tela carrega a próxima página quando você chega perto do fim (scroll infinito com `IntersectionObserver`).
+- A busca espera 300 ms depois da última tecla (debounce), para não disparar um request por letra.
+- `GET /api/skins/items?keys=s1013,c1014` resolve os itens salvos na wishlist, que podem não estar nas páginas já carregadas.
 
 ## Stack
 

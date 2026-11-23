@@ -1,4 +1,10 @@
-import type { CatalogItem, Champion, Skin } from "@/lib/types";
+import type {
+  CatalogItem,
+  CatalogPage,
+  Champion,
+  Skin,
+  WishlistGroup,
+} from "@/lib/types";
 
 /** Minúsculas, sem acentos e sem pontuação: "Kai'Sa" → "kaisa". */
 export function normalize(text: string): string {
@@ -48,8 +54,48 @@ export function searchCatalog(champions: Champion[], query: string): Champion[] 
     .filter((champ) => champ.skins.length > 0);
 }
 
+/**
+ * Uma "página" do catálogo: um pedaço dos campeões já filtrados.
+ * `nextCursor` é o índice do próximo campeão (null = acabou).
+ */
+export function paginate(
+  champions: Champion[],
+  cursor: number,
+  limit: number,
+): CatalogPage {
+  const end = cursor + limit;
+  return {
+    champions: champions.slice(cursor, end),
+    nextCursor: end < champions.length ? end : null,
+    totalChampions: champions.length,
+    totalSkins: champions.reduce((n, c) => n + c.skins.length, 0),
+  };
+}
+
+/**
+ * Resolve as chaves salvas na wishlist ("s1013", "c1014") e agrupa por
+ * campeão, em ordem alfabética. Dentro do campeão, mantém a ordem das chaves.
+ */
+export function groupWishlist(champions: Champion[], keys: string[]): WishlistGroup[] {
+  const items = buildItemMap(champions);
+  const groups = new Map<number, CatalogItem[]>();
+  for (const key of keys) {
+    const item = items.get(key);
+    if (!item) continue;
+    const list = groups.get(item.skin.championId) ?? [];
+    list.push(item);
+    groups.set(item.skin.championId, list);
+  }
+  return champions
+    .filter((c) => groups.has(c.id))
+    .map((c) => ({
+      champion: { id: c.id, name: c.name, icon: c.icon },
+      items: groups.get(c.id)!,
+    }));
+}
+
 /** Mapa chave → item (skins e chromas), para resolver a wishlist salva. */
-export function buildItemMap(champions: Champion[]): Map<string, CatalogItem> {
+function buildItemMap(champions: Champion[]): Map<string, CatalogItem> {
   const map = new Map<string, CatalogItem>();
   for (const champ of champions) {
     for (const skin of champ.skins) {
