@@ -21,12 +21,21 @@ export type Skin = {
   rarity: Rarity | null;
   isLegacy: boolean;
   image: string | null;
+  /** Splash art grande, usada no modal da skin. */
+  splash: string | null;
   skinLines: string[];
   chromas: Chroma[];
 };
 
+export type Champion = {
+  id: number;
+  name: string;
+  icon: string;
+  skins: Skin[];
+};
+
 /**
- * Item exibido na tela: uma skin ou um chroma específico.
+ * Item que pode ir para a wishlist: uma skin ou um chroma específico.
  * `key` é único entre os dois tipos ("s1013" = skin, "c1014" = chroma)
  * e é o que salvamos na wishlist.
  */

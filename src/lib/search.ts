@@ -1,6 +1,4 @@
-import type { CatalogItem, Skin } from "@/lib/types";
-
-export type KindFilter = "all" | "skin" | "chroma";
+import type { CatalogItem, Champion, Skin } from "@/lib/types";
 
 /** Minúsculas, sem acentos e sem pontuação: "Kai'Sa" → "kaisa". */
 export function normalize(text: string): string {
@@ -11,39 +9,53 @@ export function normalize(text: string): string {
     .replace(/[^a-z0-9 ]/g, "");
 }
 
-export type SearchIndex = { item: CatalogItem; haystack: string }[];
-
-/** Achata skins + chromas numa lista pesquisável. Feito uma vez só. */
-export function buildIndex(skins: Skin[]): SearchIndex {
-  const index: SearchIndex = [];
-  for (const skin of skins) {
-    const base = [skin.name, skin.championName, ...skin.skinLines].join(" ");
-    index.push({
-      item: { kind: "skin", key: `s${skin.id}`, skin },
-      haystack: normalize(base),
-    });
-    for (const chroma of skin.chromas) {
-      index.push({
-        item: { kind: "chroma", key: `c${chroma.id}`, skin, chroma },
-        haystack: normalize(`${base} ${chroma.name} chroma`),
-      });
-    }
+/**
+ * Texto pesquisável de cada skin: nome, campeão, coleções e nomes dos
+ * chromas. Assim "ahri emerald" encontra a skin que tem esse chroma.
+ * Calculado uma vez só (WeakMap evita recalcular a cada tecla).
+ */
+const haystacks = new WeakMap<Skin, string>();
+function haystack(skin: Skin): string {
+  let text = haystacks.get(skin);
+  if (text === undefined) {
+    text = normalize(
+      [skin.name, skin.championName, ...skin.skinLines, ...skin.chromas.map((c) => c.name)].join(" "),
+    );
+    haystacks.set(skin, text);
   }
-  return index;
+  return text;
 }
 
-/** Todas as palavras digitadas precisam aparecer, em qualquer ordem. */
-export function search(
-  index: SearchIndex,
-  query: string,
-  kind: KindFilter,
-): CatalogItem[] {
+/**
+ * Filtra mantendo o agrupamento por campeão. Todas as palavras digitadas
+ * precisam aparecer, em qualquer ordem. Campeões sem skin restante somem.
+ */
+export function searchCatalog(champions: Champion[], query: string): Champion[] {
   const terms = normalize(query).split(" ").filter(Boolean);
-  return index
-    .filter(
-      ({ item, haystack }) =>
-        (kind === "all" || item.kind === kind) &&
-        terms.every((t) => haystack.includes(t)),
-    )
-    .map(({ item }) => item);
+  if (terms.length === 0) return champions;
+  return champions
+    .map((champ) => ({
+      ...champ,
+      skins: champ.skins.filter((skin) => terms.every((t) => haystack(skin).includes(t))),
+    }))
+    .filter((champ) => champ.skins.length > 0);
+}
+
+/** Mapa chave → item (skins e chromas), para resolver a wishlist salva. */
+export function buildItemMap(champions: Champion[]): Map<string, CatalogItem> {
+  const map = new Map<string, CatalogItem>();
+  for (const champ of champions) {
+    for (const skin of champ.skins) {
+      map.set(skinKey(skin), { kind: "skin", key: skinKey(skin), skin });
+      for (const chroma of skin.chromas) {
+        const key = `c${chroma.id}`;
+        map.set(key, { kind: "chroma", key, skin, chroma });
+      }
+    }
+  }
+  return map;
+}
+
+export function skinKey(skin: Skin): string {
+  return `s${skin.id}`;
 }
